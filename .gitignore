@@ -1,0 +1,34 @@
+# Ignore build artifacts
+build/
+bin/
+
+# Ignore compiled object files
+*.o
+
+# Ignore compiled assembly files
+*.s
+
+# Ignore temporary files
+*.tmp
+*.swp
+
+# Ignore VSCode settings
+.vscode/
+
+# Ignore generated documentation
+docs/*
+
+# Ignore logs
+*.log
+
+# Ignore configuration byproducts
+*.config
+
+# Ignore CMake files (if applicable)
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+
+# Ignore executables
+PROJECT_NAME
+
