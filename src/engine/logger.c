@@ -1,16 +1,15 @@
 #define _POSIX_C_SOURCE 200809L
 
-#include <engine/logger.h> // Your header first
+#include <engine/logger.h> 
 
-// Standard C library headers
-#include <time.h>   // For time(), localtime(), strftime()
-#include <stdio.h>  // For FILE, fopen(), fclose(), fprintf(), stderr, stdout
-#include <stdlib.h> // For malloc(), free(), exit() (if needed)
-#include <stdarg.h> // For va_list, va_start, va_end, va_copy, vsnprintf
-#include <string.h> // For strdup(), strlen()
-#include <pthread.h> // For pthread_mutex functions
+#include <time.h>   
+#include <stdio.h>  
+#include <stdlib.h> 
+#include <stdarg.h> 
+#include <string.h> 
+#include <stdbool.h>
+#include <pthread.h> 
 
-// Define reasonable buffer sizes for safety
 #define MAX_LOG_MESSAGE_SIZE 1024
 #define MAX_TIME_STRING_SIZE 64
 #define MAX_FULL_LOG_LINE_SIZE (MAX_TIME_STRING_SIZE + 64 + MAX_LOG_MESSAGE_SIZE)
@@ -19,12 +18,14 @@
 static const char *const DEFAULT_FORMAT_STR = "%s - [%s:%s]: %s";
 
 
+static FILE *g_console_ptr = NULL;
 static FILE *g_logfile_ptr = NULL;
 static Logger_Level g_log_level = DEFAULT_LEVEL;
 static char *g_log_format = NULL;
 static pthread_mutex_t g_log_mutex = PTHREAD_MUTEX_INITIALIZER;
-static int g_is_initialized = 0; // Use bool for clarity (true/false)
+static bool g_is_initialized = false;
 
+static void internal_logger_lazy_init(void);
 
 const char *log_level_name(Logger_Level level) {
   switch (level) {
@@ -59,14 +60,15 @@ static char *format_string_from_var_args(const char *format, va_list args) {
   return buffer;
 }
 
-// This static function performs the essential one-time default setup
+bool Logger_IsFullyInitialized(void) {
+  return (g_is_initialized && g_console_ptr != NULL && g_logfile_ptr != NULL);
+}
+
 static void internal_logger_lazy_init(void) {
-  // We need a lock around this critical section for true thread-safety during lazy init
-  // (even though the mutex itself is static initialized, its first use must be protected)
   pthread_mutex_lock(&g_log_mutex); 
 
   if (g_is_initialized) {
-    pthread_mutex_unlock(&g_log_mutex); // Unlock before returning
+    pthread_mutex_unlock(&g_log_mutex); 
     return;
   }
 
@@ -75,107 +77,97 @@ static void internal_logger_lazy_init(void) {
   g_log_format = strdup(DEFAULT_FORMAT_STR);
   if (g_log_format == NULL) {
       fprintf(stderr, "LOGGER CRITICAL: Failed to allocate default log format during lazy init. Using static literal fallback.\n");
-      g_log_format = (char*)DEFAULT_FORMAT_STR; // Cast to char* to remove const for assignment
+      g_log_format = (char*)DEFAULT_FORMAT_STR; 
   }
 
-  g_logfile_ptr = stdout; 
-  
-  g_is_initialized = 1; // Mark as initialized
+  g_console_ptr = stdout;
+  g_logfile_ptr = NULL;  
+
+  g_is_initialized = true; 
   fprintf(stdout, "LOGGER INFO: Logger core lazily initialized (default to stdout).\n");
 
-  pthread_mutex_unlock(&g_log_mutex); // Unlock after successful init
+  pthread_mutex_unlock(&g_log_mutex);
 }
 
 
-void Logger_Init(const char* filename, Logger_Level level, const char* format) {
-  // Ensure the core lazy initialization has happened first.
-  // This will only run once and set g_is_initialized to true.
-  internal_logger_lazy_init();
-
-  // Now, this function will primarily *re-configure* the logger.
-  // We need a separate lock here because internal_logger_lazy_init has its own lock.
-  // However, since internal_logger_lazy_init only acquires/releases its lock once,
-  // we can treat this as the main configuration lock.
+void Logger_Init(const FILE *stream, const char* filename, Logger_Level level, const char* format) {
+  internal_logger_lazy_init(); 
   pthread_mutex_lock(&g_log_mutex);
 
-  // If Logger_Init is called multiple times for reconfiguration, log a warning.
-  // (We've already established g_is_initialized is true by internal_logger_lazy_init())
-  if (g_is_initialized && g_logfile_ptr != NULL) { // Check for proper initialization state
-      fprintf(stdout, "LOGGER INFO: Logger re-configuring with new settings.\n");
+  if (g_is_initialized && g_console_ptr != NULL) {
+      fprintf(g_console_ptr, "LOGGER INFO: Logger re-configuring with new settings.\n");
   } else {
-      // This branch should ideally not be hit if internal_logger_lazy_init works.
-      // It handles an odd state where g_is_initialized is true but something is wrong.
       fprintf(stderr, "LOGGER WARNING: Logger_Init called in an unexpected state. Proceeding with configuration.\n");
   }
 
+  if (level < LOGGER_LEVEL_DEBUG || level > LOGGER_LEVEL_ERROR) {
+    fprintf(stderr, "LOGGER ERROR: Invalid log level provided: %d. Reverting to default.\n", level);
+    g_log_level = DEFAULT_LEVEL; 
+  } else {
+    g_log_level = level; 
+  }
 
-  g_log_level = level; // Update level
+  if (stream != NULL && (stream == stdout || stream == stderr)) {
+    g_console_ptr = (FILE *)stream;
+  } else {
+    g_console_ptr = stdout;
+    if (stream != NULL) { 
+        fprintf(stderr, "LOGGER WARNING: Invalid console stream provided. Defaulting to stdout.\n");
+    }
+  }
 
-  // Manage g_log_format (strdup for dynamic ownership)
-  // Free existing format ONLY if it's dynamic (not the DEFAULT_FORMAT_STR literal)
+
   if (g_log_format != NULL && g_log_format != DEFAULT_FORMAT_STR) {
       free(g_log_format);
-      g_log_format = NULL; // Prevent dangling pointer
   }
+  g_log_format = NULL; 
 
   if (format != NULL) {
     g_log_format = strdup(format);
     if (g_log_format == NULL) {
-        fprintf(stderr, "LOGGER ERROR: Failed to duplicate log format string. Reverting to default.\n");
-        g_log_format = strdup(DEFAULT_FORMAT_STR); // Fallback to default
+        fprintf(stderr, "LOGGER ERROR: Failed to duplicate provided log format. Reverting to default.\n");
+
+        g_log_format = strdup(DEFAULT_FORMAT_STR);
         if (g_log_format == NULL) {
-             fprintf(stderr, "LOGGER CRITICAL: Failed to set any log format. Aborting.\n");
-             pthread_mutex_unlock(&g_log_mutex);
-             return;
+             fprintf(stderr, "LOGGER CRITICAL: Failed to allocate default log format. Using static literal fallback.\n");
+             g_log_format = (char*)DEFAULT_FORMAT_STR;
         }
     }
   } else {
-    // If format is NULL, revert to default format string
     g_log_format = strdup(DEFAULT_FORMAT_STR);
     if (g_log_format == NULL) {
-        fprintf(stderr, "LOGGER CRITICAL: Failed to revert to default log format. Aborting.\n");
-        pthread_mutex_unlock(&g_log_mutex);
-        return;
+        fprintf(stderr, "LOGGER CRITICAL: Failed to allocate default log format. Using static literal fallback.\n");
+        g_log_format = (char*)DEFAULT_FORMAT_STR;
     }
   }
 
+
+  if (g_logfile_ptr != NULL && g_logfile_ptr != stdout && g_logfile_ptr != stderr) {
+      fclose(g_logfile_ptr);
+  }
+  g_logfile_ptr = NULL; 
 
   if (filename != NULL) {
-    // Close existing file IF it's not stdout/stderr before opening a new one
-    if (g_logfile_ptr != NULL && g_logfile_ptr != stdout && g_logfile_ptr != stderr) {
-      fclose(g_logfile_ptr);
-    }
     g_logfile_ptr = fopen(filename, "a");
-
+    
     if (g_logfile_ptr == NULL) {
-      fprintf(stderr, "LOGGER ERROR: Failed to open log file: %s. Defaulting to stdout.\n", filename);
-      g_logfile_ptr = stdout;
+      fprintf(stderr, "LOGGER ERROR: Failed to open log file: %s. File logging is disabled.\n", filename);
+
     } else {
-      fprintf(stdout, "LOGGER INFO: Log file opened: %s\n", filename);
+      if (g_console_ptr != NULL) {
+          fprintf(g_console_ptr, "LOGGER INFO: Log file opened: %s\n", filename);
+      }
     }
   } else {
-    // If filename is NULL, ensure we're using stdout (close file if previously open)
-    if (g_logfile_ptr != NULL && g_logfile_ptr != stdout && g_logfile_ptr != stderr) {
-        fclose(g_logfile_ptr);
-    }
-    g_logfile_ptr = stdout;
+    g_logfile_ptr = NULL; 
   }
 
-  // g_is_initialized remains true from internal_logger_lazy_init
   pthread_mutex_unlock(&g_log_mutex);
 }
 
 void Logger_SetLevel(Logger_Level level) {
-  // Ensure lazy init first
   internal_logger_lazy_init();
-
   pthread_mutex_lock(&g_log_mutex);
-
-  if (!g_is_initialized) { // Redundant check, but safe
-      fprintf(stderr, "LOGGER ERROR: Logger not initialized. Cannot set level.\n");
-      pthread_mutex_unlock(&g_log_mutex);
-      return;
-  }
 
   if (level < LOGGER_LEVEL_DEBUG || level > LOGGER_LEVEL_ERROR) {
     fprintf(stderr, "LOGGER ERROR: Invalid log level provided: %d. Level not changed.\n", level);
@@ -183,50 +175,48 @@ void Logger_SetLevel(Logger_Level level) {
     return;
   }
 
-  fprintf(g_logfile_ptr, "LOGGER INFO: Log level set from %s to %s\n", log_level_name(g_log_level), log_level_name(level));
+  if (g_console_ptr != NULL) {
+      fprintf(g_console_ptr, "LOGGER INFO: Log level set from %s to %s\n", log_level_name(g_log_level), log_level_name(level));
+  } else {
+      fprintf(stderr, "LOGGER INFO: Log level set from %s to %s\n", log_level_name(g_log_level), log_level_name(level));
+  }
   g_log_level = level;
 
   pthread_mutex_unlock(&g_log_mutex);
 }
 
 void Logger_SetFormat(const char* format) {
-  // Ensure lazy init first
   internal_logger_lazy_init();
-
   pthread_mutex_lock(&g_log_mutex);
-
-  if (!g_is_initialized) { // Redundant check, but safe
-      fprintf(stderr, "LOGGER ERROR: Logger not initialized. Cannot set format.\n");
-      pthread_mutex_unlock(&g_log_mutex);
-      return;
-  }
 
   if (g_log_format != NULL && g_log_format != DEFAULT_FORMAT_STR) {
       free(g_log_format);
-      g_log_format = NULL; // Prevent dangling pointer
   }
+  g_log_format = NULL; 
 
   if (format != NULL) {
     g_log_format = strdup(format);
     if (g_log_format == NULL) {
-        fprintf(stderr, "LOGGER ERROR: Failed to duplicate new log format string. Keeping old format.\n");
+        fprintf(stderr, "LOGGER ERROR: Failed to duplicate new log format string. Reverting to default.\n");
         g_log_format = strdup(DEFAULT_FORMAT_STR);
         if (g_log_format == NULL) {
-             fprintf(stderr, "LOGGER CRITICAL: Failed to set any log format. Aborting.\n");
-             pthread_mutex_unlock(&g_log_mutex);
-             return;
+             fprintf(stderr, "LOGGER CRITICAL: Failed to set any log format. Using static literal fallback.\n");
+             g_log_format = (char*)DEFAULT_FORMAT_STR;
         }
     }
   } else {
     g_log_format = strdup(DEFAULT_FORMAT_STR);
     if (g_log_format == NULL) {
-        fprintf(stderr, "LOGGER CRITICAL: Failed to revert to default log format. Aborting.\n");
-        pthread_mutex_unlock(&g_log_mutex);
-        return;
+        fprintf(stderr, "LOGGER CRITICAL: Failed to revert to default log format. Using static literal fallback.\n");
+        g_log_format = (char*)DEFAULT_FORMAT_STR; 
     }
   }
 
-  fprintf(g_logfile_ptr, "LOGGER INFO: Log format set to: %s\n", g_log_format);
+  if (g_console_ptr != NULL) {
+      fprintf(g_console_ptr, "LOGGER INFO: Log format set to: %s\n", g_log_format);
+  } else {
+      fprintf(stderr, "LOGGER INFO: Log format set to: %s\n", g_log_format);
+  }
 
   pthread_mutex_unlock(&g_log_mutex);
 }
@@ -241,11 +231,19 @@ void Logger_Destroy(void) {
   }
 
   if (g_logfile_ptr != NULL && g_logfile_ptr != stdout && g_logfile_ptr != stderr) {
-      fprintf(g_logfile_ptr, "LOGGER INFO: Logger shutting down...\n");
+      fprintf(g_logfile_ptr, "LOGGER INFO: Logger shutting down file log...\n");
       fflush(g_logfile_ptr);
       fclose(g_logfile_ptr);
   }
-  g_logfile_ptr = NULL;
+  g_logfile_ptr = NULL; 
+
+  if (g_console_ptr != NULL && g_console_ptr != stdout && g_console_ptr != stderr) {
+      fprintf(g_console_ptr, "LOGGER INFO: Logger shutting down console stream...\n");
+      fflush(g_console_ptr);
+      fclose(g_console_ptr);
+  }
+  g_console_ptr = NULL;
+
 
   if (g_log_format != NULL && g_log_format != DEFAULT_FORMAT_STR) {
       free(g_log_format);
@@ -253,26 +251,22 @@ void Logger_Destroy(void) {
   g_log_format = NULL;
 
   pthread_mutex_unlock(&g_log_mutex);
-  pthread_mutex_destroy(&g_log_mutex); // Only destroy the mutex ONCE here!
+  pthread_mutex_destroy(&g_log_mutex); 
 
-  g_is_initialized = 0; // Reset initialization flag
+  g_is_initialized = false;
 }
 
 void Logger_RootLog(Logger_Level level, const char* file, const char* format, ...) {
-  // Ensure core lazy initialization has happened first.
   internal_logger_lazy_init();
 
-  // Check against global log level FIRST, outside of lock for performance
   if (level < g_log_level) {
     return;
   }
 
-  // Only lock if we're actually going to log something
   pthread_mutex_lock(&g_log_mutex);
 
-  // Critical check for initialization after lock (should always be true after internal_logger_lazy_init)
-  if (!g_is_initialized || g_logfile_ptr == NULL) {
-    fprintf(stderr, "LOGGER ERROR: Logger not ready to log (initialization state issue).\n");
+  if (!g_is_initialized || (g_console_ptr == NULL && g_logfile_ptr == NULL)) {
+    fprintf(stderr, "LOGGER ERROR: Logger not ready to log (no active output streams).\n");
     pthread_mutex_unlock(&g_log_mutex);
     return;
   }
@@ -308,13 +302,18 @@ void Logger_RootLog(Logger_Level level, const char* file, const char* format, ..
       fprintf(stderr, "LOGGER WARNING: Log line truncated. Increase MAX_FULL_LOG_LINE_SIZE.\n");
   }
 
-  fprintf(g_logfile_ptr, "%s", final_log_line);
-  fflush(g_logfile_ptr);
+  if (g_console_ptr != NULL) {
+    fprintf(g_console_ptr, "%s", final_log_line);
+    fflush(g_console_ptr);
+  }
+
+  if (g_logfile_ptr != NULL) {
+    fprintf(g_logfile_ptr, "%s", final_log_line);
+    fflush(g_logfile_ptr);
+  }
 
   free(formatted_user_message);
   formatted_user_message = NULL;
 
   pthread_mutex_unlock(&g_log_mutex);
-  // REMOVED: pthread_mutex_destroy(&g_log_mutex); // THIS WAS THE PROBLEM!
-  // REMOVED: g_is_initialized = 0; // THIS WAS ALSO A PROBLEM!
 }

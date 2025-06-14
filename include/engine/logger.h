@@ -1,7 +1,8 @@
 #ifndef LOGGER_H
 #define LOGGER_H
 
-#include <stdarg.h> // Need va_list type for Logger_RootLog_Core
+#include <stdarg.h>
+#include <stdbool.h>
 
 typedef enum {
   LOGGER_LEVEL_DEBUG,
@@ -12,10 +13,12 @@ typedef enum {
 
 // Logger initialization, setting level, setting format, and destruction
 // Added 'format' to Init, changed 'level' to be optional as a value, not a pointer.
-void Logger_Init(const char* filename, Logger_Level level, const char* format);
+void Logger_Init(const FILE *stream, const char* filename, Logger_Level level, const char* format);
 void Logger_SetLevel(Logger_Level level);
 void Logger_SetFormat(const char* format); // New function, needs a char* not const char* potentially
 void Logger_Destroy(void);
+
+bool Logger_IsFullyInitialized(void);
 
 // Internal helper for getting level name (optional to expose)
 const char *log_level_name(Logger_Level level);
