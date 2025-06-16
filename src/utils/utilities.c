@@ -3,8 +3,26 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
 #include <stdbool.h>
+#include <SDL2/SDL.h>
 
+#ifdef _WIN32
+#include <windows.h>
+
+#define MKDIR(path) CreateDirectory(path, NULL)
+#define PATH_SEP '\\'
+#else
+#include <errno.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+
+#define MKDIR(path) mkdir(path, 0755)
+#define PATH_SEP '/'
+#endif
+
+
+double total_time_elapsed = 0.0;
 
 
 /**
@@ -53,7 +71,22 @@ char *argv_join(char **argv,const char *sep, int argc, int start) {
   return joined;
 }
 
-char *path_join(const char *a, const char *b, const char *sep) {
+/**
+ * @brief Join two paths together with the appropriate path separator.
+ *
+ * @param a The first path.
+ * @param b The second path.
+ * @return The joined path. Must be carefully freed.
+ *
+ * If either @a or @b is NULL, an error message is printed to stderr and NULL is returned.
+ *
+ * The join is performed by appending @b to @a with a path separator in between.
+ * If @a ends with a path separator, no extra separator is added.
+ * If @b starts with a path separator, that separator is ignored.
+ *
+ * The resulting string is allocated with malloc and must be freed when no longer needed.
+ */
+char *path_join(const char *a, const char *b) {
   if (a == NULL || b == NULL) {
       fprintf(stderr, "path_join error: Input path cannot be NULL.\n");
       return NULL;
@@ -62,34 +95,23 @@ char *path_join(const char *a, const char *b, const char *sep) {
   size_t a_len = strlen(a);
   size_t b_len = strlen(b);
 
-  // Determine if a separator is needed
-  // 'add_sep' will be true if 'a' does NOT end with a sep AND 'b' does NOT start with a sep
   bool add_sep = false;
-  if (a_len > 0 && b_len > 0) { // Only consider adding a separator if both parts are non-empty
-      bool a_ends_with_sep = (a[a_len - 1] == sep);
-      bool b_starts_with_sep = (b[0] == sep);
-
+  if (a_len > 0 && b_len > 0) {
+      bool a_ends_with_sep = (a[a_len - 1] == PATH_SEP);
+      bool b_starts_with_sep = (b[0] == PATH_SEP);
       if (!a_ends_with_sep && !b_starts_with_sep) {
-          add_sep = true; // Neither has a separator, so we need to add one
+          add_sep = true;
       }
-      // If one of them has it, or both have it, we handle it by not adding an extra one
-      // and potentially skipping 'b's leading separator if both have one.
   }
-  
-  // Calculate effective length of 'b' that will be copied
+
   size_t effective_b_len = b_len;
   size_t b_offset = 0;
-
-  if (a_len > 0 && b_len > 0 && a[a_len - 1] == sep && b[0] == sep) {
-      // Case: "dir1/" + "/dir2" -> "dir1/dir2" (remove leading slash of b)
+  if (a_len > 0 && b_len > 0 && a[a_len - 1] == PATH_SEP && b[0] == PATH_SEP) {
       b_offset = 1;
       effective_b_len--;
   }
 
-  // Calculate total length needed:
-  // length of 'a' + (1 if add_sep is true) + effective length of 'b' + null terminator
   size_t total_len = a_len + (add_sep ? 1 : 0) + effective_b_len + 1;
-
   char *result = malloc(total_len);
   if (!result) {
       perror("Failed to allocate memory for path_join");
@@ -97,23 +119,40 @@ char *path_join(const char *a, const char *b, const char *sep) {
   }
 
   char *p = result;
-
-  // Copy 'a'
   memcpy(p, a, a_len);
   p += a_len;
 
-  // Insert separator if needed
   if (add_sep) {
-      *p = sep;
+      *p = PATH_SEP;
       p++;
   }
 
-  // Copy 'b' with offset
   memcpy(p, b + b_offset, effective_b_len);
   p += effective_b_len;
 
-  // Null-terminate
   *p = '\0';
 
   return result;
 }
+
+
+bool makedir(const char *path) {
+  if (MKDIR(path) == 0) {
+    return true;
+  } else {
+    #ifdef _WIN32
+    if (GetLastError() == ERROR_ALREADY_EXISTS) {
+      return false;
+    }
+    #else
+    if (errno == EEXIST) {
+      return false;
+    }
+    #endif
+    return false;
+  }
+}
+
+// bool makedirs(const char *root_path, ...) {
+
+// }

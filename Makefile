@@ -1,7 +1,7 @@
 CC = gcc
 BASE_CFLAGS = -Wall -Wextra `sdl2-config --cflags` -I./src -I./include -std=c11
 LDFLAGS = `sdl2-config --libs`
-RELEASE_CFLAGS = $(BASE_CFLAGS) -Werror -march=native -flto -O3 -DNDEBUG
+RELEASE_CFLAGS = $(BASE_CFLAGS) -Werror -flto -O2 -DNDEBUG -fno-strict-aliasing
 CFLAGS = $(BASE_CFLAGS) -g
 
 SRC_DIR = src
@@ -12,6 +12,7 @@ PROJECT_NAME = babylon
 
 OBJ_DIR = $(BUILD_DIR)/obj
 ASM_DIR = $(BUILD_DIR)/asm
+GAME_CONFIG_DIR = ~/.local/share/JohnLesterDev/
 
 SRC = $(shell find $(SRC_DIR) -name '*.c')
 OBJ = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.o, $(SRC))
@@ -29,10 +30,10 @@ $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
 
 release: CFLAGS = $(RELEASE_CFLAGS)
 release: clean $(OUT)
-	strip $(OUT)
+# strip $(OUT)  # strip binary, scary
 
 clean:
-	rm -rf $(BUILD_DIR) $(BIN_DIR)
+	rm -rf $(BUILD_DIR) $(BIN_DIR) $(GAME_CONFIG_DIR)
 
 asm: CFLAGS += -S
 asm: clean

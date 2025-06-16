@@ -14,24 +14,24 @@ void Constants_InitPaths(void) {
   // 1. Get the root preference path
   GAME_ROOT_PATH = SDL_GetPrefPath(GAME_AUTHOR, GAME_NAME);
   if (GAME_ROOT_PATH == NULL) {
-      fprintf(stderr, "ERROR: Failed to get game root path: %s\n", SDL_GetError());
+      LOGGER_ERROR("Failed to get game root path: %s\n", SDL_GetError());
       // Handle error: perhaps exit, or default to current directory
       return; 
   }
 
   // 2. Join the root path with "config"
   // Use path_join correctly with two arguments
-  GAME_CONFIG_PATH = path_join(GAME_ROOT_PATH, "config", "/");
+  GAME_CONFIG_PATH = path_join(GAME_ROOT_PATH, "config");
   if (GAME_CONFIG_PATH == NULL) {
-      perror("ERROR: Failed to join game config path");
+      LOGGER_ERROR("Failed to join game config path");
       // Handle error: Free GAME_ROOT_PATH if GAME_CONFIG_PATH fails, then exit or fallback
       SDL_free(GAME_ROOT_PATH); // Clean up the first allocated path
       GAME_ROOT_PATH = NULL;
       return;
   }
 
-  fprintf(stdout, "INFO: Game Root Path: %s\n", GAME_ROOT_PATH);
-  fprintf(stdout, "INFO: Game Config Path: %s\n", GAME_CONFIG_PATH);
+  LOGGER_INFO("Game Root Path: %s\n", GAME_ROOT_PATH);
+  LOGGER_INFO("Game Config Path: %s\n", GAME_CONFIG_PATH);
 }
 
 void Constants_DestroyPaths(void) {
@@ -47,5 +47,5 @@ void Constants_DestroyPaths(void) {
       GAME_CONFIG_PATH = NULL;
   }
 
-  fprintf(stdout, "INFO: Game paths deallocated.\n");
+  LOGGER_INFO("Game paths deallocated.\n");
 }

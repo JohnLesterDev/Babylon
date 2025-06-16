@@ -10,7 +10,7 @@
 extern char *GAME_ROOT_PATH;
 extern char *GAME_CONFIG_PATH;
 
-void Constant_InitPaths(void);
-void Constant_DestroyPaths(void);
+void Constants_InitPaths(void);
+void Constants_DestroyPaths(void);
 
 #endif

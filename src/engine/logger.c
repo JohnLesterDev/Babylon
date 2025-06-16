@@ -237,10 +237,9 @@ void Logger_Destroy(void) {
   }
   g_logfile_ptr = NULL; 
 
-  if (g_console_ptr != NULL && g_console_ptr != stdout && g_console_ptr != stderr) {
+  if (g_console_ptr != NULL) {
       fprintf(g_console_ptr, "LOGGER INFO: Logger shutting down console stream...\n");
       fflush(g_console_ptr);
-      fclose(g_console_ptr);
   }
   g_console_ptr = NULL;
 

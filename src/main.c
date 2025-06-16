@@ -57,23 +57,25 @@ COMMAND(CMD_Version, bool) {
 
 
 int main(int argc, char **argv) {
-  Constant_InitPaths();
+  VOID_PROFILED(false, Logger_RootLog, LOGGER_LEVEL_INFO, Constants_InitPaths);
 
-  if (!Logger_IsFullyInitialized()) {
-    Logger_Init(stdout, path_join(GAME_ROOT_PATH, ".log", "/"), LOGGER_LEVEL_INFO, NULL);
+  if (!TYPE_PROFILED((_Bool)true, Logger_RootLog, LOGGER_LEVEL_INFO, Logger_IsFullyInitialized)) {
+    VOID_PROFILED(false, Logger_RootLog, LOGGER_LEVEL_INFO, Logger_Init, stdout, path_join(GAME_ROOT_PATH, ".log"), LOGGER_LEVEL_INFO, NULL);
   }
 
   if (CMD_Help(argc, argv) || CMD_Version(argc, argv)) return 0;
   
   Game *game = NULL;
 
-  if (!Game_Init(&game)) {
-    fprintf(stderr, "Failed to initialize game\n");
+  if (!TYPE_PROFILED((_Bool)true, Logger_RootLog, LOGGER_LEVEL_INFO, Game_Init, &game)) {
+    LOGGER_ERROR("Failed to initialize game\n");
     return -1;
   }
 
   Game_Run(game);
   Game_Destroy(game);
+  Constants_DestroyPaths();
+  Logger_Destroy();
 
   return 0;
 }
